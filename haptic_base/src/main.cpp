@@ -1,26 +1,24 @@
 /*
-  haptic_base.ino
+  main.cpp
 
   BLE-controlled DRV2605L demo for an Arduino Nano 33 BLE.
   The board talks to the DRV2605L over I2C and listens for
   BLE commands that tell it which haptic preset to play.
 
   Wiring for the DRV2605L breakout:
-  - DRV2605L SDA -> Arduino A4
-  - DRV2605L SCL -> Arduino A5
+  - DRV2605L SDA -> Arduino SDA
+  - DRV2605L SCL -> Arduino SCL
   - DRV2605L VIN -> Arduino 3.3V
   - DRV2605L GND -> Arduino GND
 */
 
-#include <Wire.h>
+#include <Arduino.h>
 #include <ArduinoBLE.h>
 #include <Adafruit_DRV2605.h>
+#include <Wire.h>
 
-// Create the haptic driver object from the Adafruit library.
 Adafruit_DRV2605 drv;
 
-// This table maps simple BLE preset IDs (1-6) to DRV2605L waveform IDs.
-// The first three entries match the EEG states we discussed earlier.
 struct HapticPreset {
   uint8_t presetId;
   const char *stateName;
@@ -34,12 +32,11 @@ const HapticPreset presets[] = {
     {3, "focused", "Strong Buzz", 14},
     {4, "spare", "Soft Bump - 100%", 7},
     {5, "spare", "Strong Click - 100%", 1},
-    {6, "spare", "750 ms Alert 100%", 15}
+    {6, "spare", "750 ms Alert 100%", 15},
 };
 
 const size_t presetCount = sizeof(presets) / sizeof(presets[0]);
 
-// Custom BLE service and characteristic UUIDs for the NeuroHaptic device.
 BLEService hapticService("19B10010-E8F2-537E-4F6C-D104768A1214");
 BLECharacteristic hapticCommandCharacteristic(
     "19B10011-E8F2-537E-4F6C-D104768A1214", BLEWrite | BLEWriteWithoutResponse, 2);
@@ -50,9 +47,10 @@ void handleBleCommand();
 void triggerEffect(int effectID);
 
 void setup() {
-  // Start USB Serial so we can watch status messages in the Serial Monitor.
   Serial.begin(115200);
-  unsigned long serialStart = millis();
+
+  // Give USB Serial a short window to attach so startup logs are easier to catch.
+  const unsigned long serialStart = millis();
   while (!Serial && millis() - serialStart < 4000) {
     delay(10);
   }
@@ -60,23 +58,18 @@ void setup() {
 
   Serial.println("Starting NeuroHaptic BLE haptic demo...");
 
-  // Start the I2C bus. The Nano 33 BLE uses the Wire library for I2C.
-  // This project is wired with SDA and SCL, powered from 3.3V.
   Wire.begin();
 
-  // Initialize the DRV2605L and stop here if the device is not detected.
   if (!drv.begin()) {
     haltWithError("ERROR: DRV2605L initialization failed over I2C. Check SDA/SCL, 3.3V, and GND.");
   }
 
-  // Configure the DRV2605L for a standard ERM motor and use waveform library 1.
   drv.useERM();
   drv.selectLibrary(1);
   drv.setMode(DRV2605_MODE_INTTRIG);
 
   Serial.println("DRV2605L initialized in ERM mode with library 1.");
 
-  // Start BLE and advertise a writable command endpoint named NeuroHaptic.
   if (!BLE.begin()) {
     haltWithError("ERROR: BLE initialization failed. Reset the board and try again.");
   }
@@ -87,7 +80,6 @@ void setup() {
   hapticService.addCharacteristic(hapticCommandCharacteristic);
   BLE.addService(hapticService);
 
-  // Initialize the 2-byte characteristic to zeros before advertising.
   uint8_t initialCommand[2] = {0, 0};
   hapticCommandCharacteristic.writeValue(initialCommand, sizeof(initialCommand));
 
@@ -98,7 +90,6 @@ void setup() {
 }
 
 void loop() {
-  // Keep the BLE stack running and check for new writes from the central device.
   BLE.poll();
   handleBleCommand();
 }
@@ -106,7 +97,6 @@ void loop() {
 void haltWithError(const char *message) {
   Serial.println(message);
 
-  // Halt so the board stays in a known state until power is cycled or reprogrammed.
   while (true) {
     delay(10);
   }
@@ -152,7 +142,6 @@ void handleBleCommand() {
 }
 
 void triggerEffect(int effectID) {
-  // This helper now accepts a simple BLE preset ID (1-6) instead of a raw DRV2605L waveform ID.
   const HapticPreset *preset = findPreset(static_cast<uint8_t>(effectID));
 
   if (preset == nullptr) {
@@ -172,10 +161,7 @@ void triggerEffect(int effectID) {
   Serial.print(preset->waveformId);
   Serial.println(")");
 
-  // Slot 0 is the first waveform slot. Slot 1 is set to 0 to mark the end.
   drv.setWaveform(0, preset->waveformId);
   drv.setWaveform(1, 0);
-
-  // Trigger the effect immediately using internal trigger mode.
   drv.go();
 }
