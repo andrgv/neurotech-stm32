@@ -11,9 +11,16 @@ BLEByteCharacteristic buzzCharacteristic(
   BLEWrite | BLEWriteWithoutResponse
 );
 
-// Fixed haptic effect
-// From the DRV2605L library, 47 is a reasonable "Buzz 1" style effect.
-const uint8_t BUZZ_WAVEFORM_ID = 47;
+// Command bytes for quick bench testing over BLE.
+const uint8_t CMD_LOW = 0x01;
+const uint8_t CMD_MEDIUM = 0x02;
+const uint8_t CMD_HIGH = 0x03;
+
+// Simple intensity tiers. These are still canned DRV2605L effects, not true
+// analog amplitude control, but they are useful for motor bring-up.
+const uint8_t BUZZ_WAVEFORM_LOW = 46;
+const uint8_t BUZZ_WAVEFORM_MEDIUM = 47;
+const uint8_t BUZZ_WAVEFORM_HIGH = 48;
 
 void haltWithError(const char *message) {
   Serial.println(message);
@@ -22,11 +29,47 @@ void haltWithError(const char *message) {
   }
 }
 
-void triggerBuzz() {
-  drv.setWaveform(0, BUZZ_WAVEFORM_ID);
+const char *commandLabel(byte cmd) {
+  switch (cmd) {
+    case CMD_LOW:
+      return "LOW";
+    case CMD_MEDIUM:
+      return "MEDIUM";
+    case CMD_HIGH:
+      return "HIGH";
+    default:
+      return "UNKNOWN";
+  }
+}
+
+uint8_t waveformForCommand(byte cmd) {
+  switch (cmd) {
+    case CMD_LOW:
+      return BUZZ_WAVEFORM_LOW;
+    case CMD_MEDIUM:
+      return BUZZ_WAVEFORM_MEDIUM;
+    case CMD_HIGH:
+      return BUZZ_WAVEFORM_HIGH;
+    default:
+      return 0;
+  }
+}
+
+void triggerBuzz(byte cmd) {
+  uint8_t waveformId = waveformForCommand(cmd);
+  if (waveformId == 0) {
+    Serial.println("Unknown command. Use 0x01 (low), 0x02 (medium), or 0x03 (high).");
+    return;
+  }
+
+  drv.setWaveform(0, waveformId);
   drv.setWaveform(1, 0);   // end sequence
   drv.go();
-  Serial.println("Buzz triggered");
+
+  Serial.print("Buzz triggered -> ");
+  Serial.print(commandLabel(cmd));
+  Serial.print(" intensity using waveform ");
+  Serial.println(waveformId);
 }
 
 void setup() {
@@ -68,7 +111,7 @@ void setup() {
   BLE.advertise();
 
   Serial.println("BLE ready. Device name: NeuroHaptic");
-  Serial.println("Write 0x01 to the characteristic to trigger one buzz.");
+  Serial.println("Write 0x01/0x02/0x03 for low/medium/high pulses.");
 }
 
 void loop() {
@@ -80,8 +123,6 @@ void loop() {
     Serial.print("Received command: ");
     Serial.println(cmd);
 
-    if (cmd == 0x01) {
-      triggerBuzz();
-    }
+    triggerBuzz(cmd);
   }
 }
