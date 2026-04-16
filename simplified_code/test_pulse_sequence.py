@@ -20,10 +20,10 @@ COMMANDS = {
     "high": 0x03,
 }
 
-WAVEFORMS = {
-    "low": 46,
-    "medium": 47,
-    "high": 48,
+PATTERNS = {
+    "low": "single soft bump",
+    "medium": "double medium buzz",
+    "high": "strong repeated click-buzz",
 }
 
 
@@ -93,10 +93,10 @@ async def find_device(timeout: float):
 
 def theoretical_serial_output(label: str) -> list[str]:
     cmd = COMMANDS[label]
-    waveform = WAVEFORMS[label]
+    pattern = PATTERNS[label]
     return [
         f"[expected-serial] Received command: {cmd}",
-        f"[expected-serial] Buzz triggered -> {label.upper()} intensity using waveform {waveform}",
+        f"[expected-serial] Buzz triggered -> {label.upper()} intensity using pattern: {pattern}",
     ]
 
 
@@ -157,9 +157,9 @@ async def run_sequence(
             print(f"\n=== Test cycle {cycle}/{repeat} ===")
             for label in sequence:
                 cmd = COMMANDS[label]
-                waveform = WAVEFORMS[label]
+                pattern = PATTERNS[label]
                 print(
-                    f"Sending {label.upper()} pulse -> command=0x{cmd:02X}, theoretical waveform={waveform}"
+                    f"Sending {label.upper()} pulse -> command=0x{cmd:02X}, theoretical pattern={pattern}"
                 )
                 for line in theoretical_serial_output(label):
                     print(line)
