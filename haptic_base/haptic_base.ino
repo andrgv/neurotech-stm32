@@ -10,6 +10,17 @@
   - DRV2605L SCL -> Arduino A5
   - DRV2605L VIN -> Arduino 3.3V
   - DRV2605L GND -> Arduino GND
+
+  Wiring for the 10 mm ERM vibration motor disk:
+  - Motor lead 1 -> DRV2605L OUT+
+  - Motor lead 2 -> DRV2605L OUT-
+
+  Breadboard note:
+  - Put the DRV2605L breakout across the breadboard center gap if possible.
+  - Run Arduino 3.3V and GND to the breadboard power rails.
+  - Run SDA/SCL from the Arduino to the DRV2605L breakout pins.
+  - Connect the motor disk directly to the DRV2605L output pads/pins, not to
+    the Arduino GPIO pins.
 */
 
 #include <Wire.h>
@@ -25,16 +36,18 @@ struct HapticPreset {
   uint8_t presetId;
   const char *stateName;
   const char *waveformName;
-  uint8_t waveformId;
+  uint8_t waveformSoft;
+  uint8_t waveformMedium;
+  uint8_t waveformStrong;
 };
 
 const HapticPreset presets[] = {
-    {1, "relaxed", "Pulsing Strong 1", 52},
-    {2, "transitioning", "Buzz 1", 47},
-    {3, "focused", "Strong Buzz", 14},
-    {4, "spare", "Soft Bump - 100%", 7},
-    {5, "spare", "Strong Click - 100%", 1},
-    {6, "spare", "750 ms Alert 100%", 15}
+    {1, "relaxed", "Soft / Medium / Strong pulse", 47, 51, 52},
+    {2, "transitioning", "Soft / Medium / Strong buzz", 46, 47, 48},
+    {3, "focused", "Soft / Medium / Strong buzz", 12, 14, 16},
+    {4, "spare", "Soft / Medium / Strong bump", 7, 10, 13},
+    {5, "spare", "Soft / Medium / Strong click", 1, 4, 6},
+    {6, "spare", "Soft / Medium / Strong alert", 15, 16, 17}
 };
 
 const size_t presetCount = sizeof(presets) / sizeof(presets[0]);
@@ -47,18 +60,19 @@ BLECharacteristic hapticCommandCharacteristic(
 void haltWithError(const char *message);
 const HapticPreset *findPreset(uint8_t presetId);
 void handleBleCommand();
-void triggerEffect(int effectID);
+uint8_t resolveWaveformId(const HapticPreset *preset, uint8_t intensity);
+void triggerEffect(int effectID, uint8_t intensity);
 
 void setup() {
-  // Start USB Serial so we can watch status messages in the Serial Monitor.
-  Serial.begin(115200);
-  unsigned long serialStart = millis();
-  while (!Serial && millis() - serialStart < 4000) {
-    delay(10);
-  }
-  delay(250);
+  // Old Serial Monitor debug path kept for reference:
+  // Serial.begin(115200);
+  // unsigned long serialStart = millis();
+  // while (!Serial && millis() - serialStart < 4000) {
+  //   delay(10);
+  // }
+  // delay(250);
 
-  Serial.println("Starting NeuroHaptic BLE haptic demo...");
+  // Serial.println("Starting NeuroHaptic BLE haptic demo...");
 
   // Start the I2C bus. The Nano 33 BLE uses the Wire library for I2C.
   // This project is wired with SDA and SCL, powered from 3.3V.
@@ -74,7 +88,7 @@ void setup() {
   drv.selectLibrary(1);
   drv.setMode(DRV2605_MODE_INTTRIG);
 
-  Serial.println("DRV2605L initialized in ERM mode with library 1.");
+  // Serial.println("DRV2605L initialized in ERM mode with library 1.");
 
   // Start BLE and advertise a writable command endpoint named NeuroHaptic.
   if (!BLE.begin()) {
@@ -93,8 +107,8 @@ void setup() {
 
   BLE.advertise();
 
-  Serial.println("BLE ready. Advertising as 'NeuroHaptic'.");
-  Serial.println("Write 2 bytes to the command characteristic: [intensity 0-100, preset ID 1-6].");
+  // Serial.println("BLE ready. Advertising as 'NeuroHaptic'.");
+  // Serial.println("Write 2 bytes to the command characteristic: [intensity 0-100, preset ID 1-6].");
 }
 
 void loop() {
@@ -104,7 +118,8 @@ void loop() {
 }
 
 void haltWithError(const char *message) {
-  Serial.println(message);
+  // Old debug output kept for reference:
+  // Serial.println(message);
 
   // Halt so the board stays in a known state until power is cycled or reprogrammed.
   while (true) {
@@ -131,49 +146,63 @@ void handleBleCommand() {
   const int bytesRead = hapticCommandCharacteristic.readValue(command, sizeof(command));
 
   if (bytesRead != 2) {
-    Serial.print("ERROR: Expected 2 BLE command bytes, received ");
-    Serial.println(bytesRead);
+    // Serial.print("ERROR: Expected 2 BLE command bytes, received ");
+    // Serial.println(bytesRead);
     return;
   }
 
-  const uint8_t intensity = command[0];
+  uint8_t intensity = command[0];
   const uint8_t presetId = command[1];
 
-  Serial.print("Received BLE command -> intensity: ");
-  Serial.print(intensity);
-  Serial.print(", preset ID: ");
-  Serial.println(presetId);
+  // Serial.print("Received BLE command -> intensity: ");
+  // Serial.print(intensity);
+  // Serial.print(", preset ID: ");
+  // Serial.println(presetId);
 
   if (intensity > 100) {
-    Serial.println("WARNING: Intensity should be in the range 0-100. Value received will be ignored for now.");
+    // Serial.println("WARNING: Intensity above 100 was clamped.");
+    intensity = 100;
   }
 
-  triggerEffect(presetId);
+  triggerEffect(presetId, intensity);
 }
 
-void triggerEffect(int effectID) {
-  // This helper now accepts a simple BLE preset ID (1-6) instead of a raw DRV2605L waveform ID.
+uint8_t resolveWaveformId(const HapticPreset *preset, uint8_t intensity) {
+  if (intensity < 34) {
+    return preset->waveformSoft;
+  }
+  if (intensity < 67) {
+    return preset->waveformMedium;
+  }
+  return preset->waveformStrong;
+}
+
+void triggerEffect(int effectID, uint8_t intensity) {
+  // This helper now accepts a BLE preset ID plus intensity and resolves it to
+  // a motor waveform for the DRV2605L.
   const HapticPreset *preset = findPreset(static_cast<uint8_t>(effectID));
 
   if (preset == nullptr) {
-    Serial.print("ERROR: Unknown preset ID ");
-    Serial.print(effectID);
-    Serial.println(". Valid preset IDs are 1 through 6.");
+    // Serial.print("ERROR: Unknown preset ID ");
+    // Serial.print(effectID);
+    // Serial.println(". Valid preset IDs are 1 through 6.");
     return;
   }
 
-  Serial.print("Playing preset ");
-  Serial.print(preset->presetId);
-  Serial.print(" -> ");
-  Serial.print(preset->stateName);
-  Serial.print(" / ");
-  Serial.print(preset->waveformName);
-  Serial.print(" (DRV2605L waveform ID ");
-  Serial.print(preset->waveformId);
-  Serial.println(")");
+  const uint8_t waveformId = resolveWaveformId(preset, intensity);
+
+  // Serial.print("Playing preset ");
+  // Serial.print(preset->presetId);
+  // Serial.print(" -> ");
+  // Serial.print(preset->stateName);
+  // Serial.print(" / ");
+  // Serial.print(preset->waveformName);
+  // Serial.print(" (DRV2605L waveform ID ");
+  // Serial.print(waveformId);
+  // Serial.println(")");
 
   // Slot 0 is the first waveform slot. Slot 1 is set to 0 to mark the end.
-  drv.setWaveform(0, preset->waveformId);
+  drv.setWaveform(0, waveformId);
   drv.setWaveform(1, 0);
 
   // Trigger the effect immediately using internal trigger mode.
