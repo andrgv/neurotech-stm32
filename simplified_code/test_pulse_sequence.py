@@ -10,8 +10,6 @@ try:
 except ImportError:
     serial = None
 
-
-DEVICE_NAME = "NeuroHaptic"
 SERVICE_UUID = "19B10010-E8F2-537E-4F6C-D104768A1214".lower()
 CHAR_UUID = "19B10011-E8F2-537E-4F6C-D104768A1214"
 
@@ -151,7 +149,7 @@ async def run_sequence(
         print("Device with matching service UUID not found.")
         return
 
-    print(f"Found device: {device.name} ({device.address})")
+    print(f"Found device: name={device.name}, address={device.address}")
 
     async with BleakClient(device) as client:
         print("Connected:", client.is_connected)
