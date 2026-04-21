@@ -16,11 +16,18 @@ const uint8_t CMD_LOW = 0x01;
 const uint8_t CMD_MEDIUM = 0x02;
 const uint8_t CMD_HIGH = 0x03;
 
-// Simple intensity tiers. These are still canned DRV2605L effects, not true
-// analog amplitude control, but they are useful for motor bring-up.
-const uint8_t BUZZ_WAVEFORM_LOW = 46;
-const uint8_t BUZZ_WAVEFORM_MEDIUM = 47;
-const uint8_t BUZZ_WAVEFORM_HIGH = 48;
+struct HapticPattern {
+  const char *label;
+  const uint8_t *sequence;
+  uint8_t length;
+  const char *summary;
+};
+
+// Use clearly different patterns instead of neighboring waveform IDs so the
+// coin motor feels more distinct during bench testing.
+const uint8_t LOW_SEQUENCE[] = { 7, 0 };                 // one soft bump
+const uint8_t MEDIUM_SEQUENCE[] = { 47, 0, 47, 0 };      // two medium buzzes
+const uint8_t HIGH_SEQUENCE[] = { 1, 47, 1, 47, 0 };     // repeated strong click + buzz
 
 void haltWithError(const char *message) {
   Serial.println(message);
@@ -42,34 +49,42 @@ const char *commandLabel(byte cmd) {
   }
 }
 
-uint8_t waveformForCommand(byte cmd) {
+const HapticPattern *patternForCommand(byte cmd) {
+  static const HapticPattern low = { "LOW", LOW_SEQUENCE, 2, "single soft bump" };
+  static const HapticPattern medium = { "MEDIUM", MEDIUM_SEQUENCE, 4, "double medium buzz" };
+  static const HapticPattern high = { "HIGH", HIGH_SEQUENCE, 5, "strong repeated click-buzz" };
+
   switch (cmd) {
     case CMD_LOW:
-      return BUZZ_WAVEFORM_LOW;
+      return &low;
     case CMD_MEDIUM:
-      return BUZZ_WAVEFORM_MEDIUM;
+      return &medium;
     case CMD_HIGH:
-      return BUZZ_WAVEFORM_HIGH;
+      return &high;
     default:
-      return 0;
+      return nullptr;
   }
 }
 
 void triggerBuzz(byte cmd) {
-  uint8_t waveformId = waveformForCommand(cmd);
-  if (waveformId == 0) {
+  const HapticPattern *pattern = patternForCommand(cmd);
+  if (pattern == nullptr) {
     Serial.println("Unknown command. Use 0x01 (low), 0x02 (medium), or 0x03 (high).");
     return;
   }
 
-  drv.setWaveform(0, waveformId);
-  drv.setWaveform(1, 0);   // end sequence
+  for (uint8_t i = 0; i < pattern->length; ++i) {
+    drv.setWaveform(i, pattern->sequence[i]);
+  }
+  for (uint8_t i = pattern->length; i < 8; ++i) {
+    drv.setWaveform(i, 0);
+  }
   drv.go();
 
   Serial.print("Buzz triggered -> ");
-  Serial.print(commandLabel(cmd));
-  Serial.print(" intensity using waveform ");
-  Serial.println(waveformId);
+  Serial.print(pattern->label);
+  Serial.print(" intensity using pattern: ");
+  Serial.println(pattern->summary);
 }
 
 void setup() {

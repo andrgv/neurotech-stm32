@@ -10,8 +10,6 @@ try:
 except ImportError:
     serial = None
 
-
-DEVICE_NAME = "NeuroHaptic"
 SERVICE_UUID = "19B10010-E8F2-537E-4F6C-D104768A1214".lower()
 CHAR_UUID = "19B10011-E8F2-537E-4F6C-D104768A1214"
 
@@ -21,10 +19,10 @@ COMMANDS = {
     "high": 0x03,
 }
 
-WAVEFORMS = {
-    "low": 46,
-    "medium": 47,
-    "high": 48,
+PATTERNS = {
+    "low": "single soft bump",
+    "medium": "double medium buzz",
+    "high": "strong repeated click-buzz",
 }
 
 
@@ -96,10 +94,10 @@ async def find_device_by_service(timeout: float):
 
 def theoretical_serial_output(label: str) -> list[str]:
     cmd = COMMANDS[label]
-    waveform = WAVEFORMS[label]
+    pattern = PATTERNS[label]
     return [
         f"[expected-serial] Received command: {cmd}",
-        f"[expected-serial] Buzz triggered -> {label.upper()} intensity using waveform {waveform}",
+        f"[expected-serial] Buzz triggered -> {label.upper()} intensity using pattern: {pattern}",
     ]
 
 
@@ -151,7 +149,7 @@ async def run_sequence(
         print("Device with matching service UUID not found.")
         return
 
-    print(f"Found device: {device.name} ({device.address})")
+    print(f"Found device: name={device.name}, address={device.address}")
 
     async with BleakClient(device) as client:
         print("Connected:", client.is_connected)
@@ -160,9 +158,9 @@ async def run_sequence(
             print(f"\n=== Test cycle {cycle}/{repeat} ===")
             for label in sequence:
                 cmd = COMMANDS[label]
-                waveform = WAVEFORMS[label]
+                pattern = PATTERNS[label]
                 print(
-                    f"Sending {label.upper()} pulse -> command=0x{cmd:02X}, theoretical waveform={waveform}"
+                    f"Sending {label.upper()} pulse -> command=0x{cmd:02X}, theoretical pattern={pattern}"
                 )
                 for line in theoretical_serial_output(label):
                     print(line)
